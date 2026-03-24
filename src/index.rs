@@ -176,6 +176,18 @@ impl VtplIndex {
     pub fn num_chunks(&self) -> u32 { self.num_chunks }
     pub fn total_entries(&self) -> usize { self.postings.values().map(|p| p.len()).sum() }
     pub fn pq_overhead_bytes(&self) -> usize { self.postings.values().map(|p| p.pq_overhead_bytes()).sum() }
+
+    pub(crate) fn get_posting_list(&self, gram: &str) -> Option<&PostingList> {
+        self.postings.get(gram)
+    }
+
+    pub(crate) fn get_df(&self, gram: &str) -> u32 {
+        self.df.get(gram).copied().unwrap_or(0)
+    }
+
+    pub(crate) fn total_docs(&self) -> u32 {
+        self.num_chunks
+    }
 }
 
 impl VtplIndex {
@@ -187,7 +199,7 @@ impl VtplIndex {
 
 /// BM25-style IDF: log((N - df + 0.5) / (df + 0.5) + 1)
 #[inline]
-fn idf(total_docs: u32, doc_freq: u32) -> f32 {
+pub(crate) fn idf(total_docs: u32, doc_freq: u32) -> f32 {
     let n = total_docs as f32;
     let df = doc_freq as f32;
     ((n - df + 0.5) / (df + 0.5) + 1.0).ln()

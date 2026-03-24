@@ -55,27 +55,43 @@ fn main() {
     println!("{} docs, {} posting lists, {} entries\n",
              par_index.num_chunks(), par_index.num_postings(), par_index.total_entries());
 
-    // --- Cached queries ---
-    println!("--- Cached index ---");
-    let cached = CachedIndex::new(par_index, 1000);
+    // --- Smart cached queries ---
+    println!("--- Smart cached index ---");
+    let cached = CachedIndex::with_defaults(par_index);
 
-    let query = "concurrent hash";
-    let q_emb = fake_embedding(dim, query);
+    let q_emb = fake_embedding(dim, "concurrent hash");
 
-    println!("Query: \"{query}\" (lambda=0.6, top 5)\n");
-    let results = cached.query(query, &q_emb, 0.6, 5);
+    println!("Query 1: \"concurrent hash\" (lambda=0.6, top 5)\n");
+    let results = cached.query("concurrent hash", &q_emb, 0.6, 5);
     for r in &results {
         println!("  id={:>2}  score={:.4}  sem={:.4}  pat={:.4}  {}",
                  r.chunk_id, r.score, r.semantic_score, r.pattern_score,
                  documents[r.chunk_id as usize].1);
     }
+    println!("\n  {}", cached.stats());
 
-    // Second identical query — cache hit
-    let _r2 = cached.query(query, &q_emb, 0.6, 5);
-    println!("\nCache stats: {} hits, {} misses, {:.0}% hit rate",
-             cached.cache_hits(), cached.cache_misses(),
-             cached.cache_hit_rate() * 100.0);
+    // Overlapping query — shares "concurrent" trigrams from cache
+    println!("\nQuery 2: \"concurrent programming\" (shares cached trigrams)\n");
+    let results2 = cached.query("concurrent programming", &q_emb, 0.6, 5);
+    for r in &results2 {
+        println!("  id={:>2}  score={:.4}  sem={:.4}  pat={:.4}  {}",
+                 r.chunk_id, r.score, r.semantic_score, r.pattern_score,
+                 documents[r.chunk_id as usize].1);
+    }
+    println!("\n  {}", cached.stats());
 
-    println!("\nSerialize: {} bytes", cached.inner().serialize().len());
+    // Third query — "hash" trigrams also cached
+    println!("\nQuery 3: \"hash table\" (reuses \"hash\" trigrams)\n");
+    let results3 = cached.query("hash table", &q_emb, 0.6, 5);
+    for r in &results3 {
+        println!("  id={:>2}  score={:.4}  sem={:.4}  pat={:.4}  {}",
+                 r.chunk_id, r.score, r.semantic_score, r.pattern_score,
+                 documents[r.chunk_id as usize].1);
+    }
+    println!("\n  {}", cached.stats());
+
+    println!("\nCache sizes: {} trigrams, {} words, {} semantic fingerprints",
+             cached.trigram_cache_size(), cached.word_cache_size(), cached.semantic_cache_size());
+    println!("Serialize: {} bytes", cached.inner().serialize().len());
     println!("=== Done ===");
 }

@@ -5,7 +5,7 @@ pub mod parallel;
 pub mod posting;
 pub mod pq;
 
-pub use cache::CachedIndex;
+pub use cache::{CacheConfig, CacheStats, CachedIndex};
 pub use index::{ScoredResult, VtplIndex};
 pub use parallel::ParallelBuilder;
 pub use posting::{ChunkId, VtplEntry};
