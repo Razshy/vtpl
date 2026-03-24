@@ -18,7 +18,9 @@ Score(chunk) = λ · PQ_cosine(q, chunk) + (1 - λ) · pattern_match_score(chunk
 
 ## Benchmarks
 
-Measured against a traditional two-index approach (separate trigram index + `HashMap<ChunkId, PqCode>` vector store with O(1) lookup per candidate + merge). Same PQ codebook, same scoring. Release mode, 200 iterations per measurement.
+### Speed
+
+Measured against a traditional two-index approach (separate trigram index + `HashMap<ChunkId, PqCode>` vector store with O(1) lookup per candidate + merge). Same PQ codebook, same scoring formula. Release mode, 200 iterations.
 
 | Documents | VTPL fused | Traditional hybrid | Speedup |
 |-----------|------------|--------------------|---------|
@@ -28,20 +30,50 @@ Measured against a traditional two-index approach (separate trigram index + `Has
 | 25,000    | 1.47 ms    | 2.38 ms            | 1.63x   |
 | 50,000    | 2.96 ms    | 4.86 ms            | 1.64x   |
 
-The traditional approach pays for building a candidate HashSet from text results, then doing a second pass of HashMap lookups for each candidate's vector, then merging. VTPL reads the PQ code inline during the posting list scan and scores everything in one pass.
+VTPL and traditional return **identical results** — same top-k, same scores. The speedup comes from eliminating the intermediate candidate set construction and second-pass vector lookups.
 
-**Memory cost:** 32 extra bytes per posting-list entry (the PQ code). At 50k docs with ~2M total entries, that's ~60 MB overhead.
+### PQ compression quality
+
+Tested with real embeddings (all-MiniLM-L6-v2, 384-dim) on AG News articles. Ground truth = top-k by exact cosine similarity.
+
+| Documents | PQ Recall@10 | PQ NDCG@10 |
+|-----------|-------------|------------|
+| 50        | 100%        | 100%       |
+| 1,000     | 95.0%       | 96.1%      |
+| 10,000    | 79.5%       | 84.1%      |
+
+PQ compression into 32 bytes works well at small-to-medium scale. At 10k+ docs with 384-dim embeddings, quantization noise costs ~20% recall. Higher-dimensional embeddings or larger corpora would need a bigger PQ budget.
+
+### Fused vs vector-only quality
+
+On real AG News embeddings (1k docs, 20 queries, Recall@10):
+
+| Method       | Recall@10 |
+|-------------|-----------|
+| Text-only   | 0.33      |
+| Fused (λ=0.6) | 0.51   |
+| Vector-only | **0.95**  |
+
+Fused beats text-only by +57%, but vector-only still wins overall on this dataset. The text signal helps when embeddings miss lexical matches, but can also add noise. Fused is strongest when queries have **both** a meaningful text pattern and a semantic intent — e.g., searching for a specific function name while also wanting semantically related code.
+
+### Memory overhead
+
+32 extra bytes per posting-list entry. At 50k docs with ~2M total entries: ~60 MB overhead.
 
 ## When to use VTPL
 
-VTPL is useful when your queries have **both a text pattern and a semantic component** — which is most real search traffic:
+VTPL is useful when queries have **both a text pattern and a semantic component**:
 
-- **Code search:** user types a function name + wants semantically related implementations
+- **Code search:** function name match + semantically related implementations
 - **Document retrieval:** keyword filter + meaning-based ranking
-- **Log search:** grep-like pattern + "find similar errors"
+- **Log search:** pattern grep + "find similar errors"
 - **E-commerce:** product name match + "things like this"
 
-For **pure vector queries** with no text signal, use a dedicated ANN index (HNSW). For **pure text queries** with no embeddings, use a standard inverted index. VTPL targets the intersection — hybrid queries where you'd otherwise run two indexes and merge.
+**Don't use VTPL for:**
+
+- **Pure vector search** — use HNSW, it's O(log n) per query
+- **Pure text search** — use a standard inverted index, no PQ overhead needed
+- **Very large corpora** (millions of docs) with high-dim embeddings — the 32-byte PQ budget may not preserve enough ranking quality
 
 ## Usage
 
