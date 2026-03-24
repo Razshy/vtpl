@@ -4,11 +4,14 @@ version = "0.1.0"
 edition = "2021"
 description = "Vector-Threaded Posting Lists — fused n-gram + vector search in a single index pass"
 license = "MIT"
+repository = "https://github.com/Razshy/vtpl"
+homepage = "https://github.com/Razshy/vtpl"
+keywords = ["search", "vector", "posting-list", "product-quantization", "hybrid-search"]
+categories = ["algorithms", "data-structures"]
 
 [dependencies]
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 bincode = "1"
 bytemuck = { version = "1", features = ["derive"] }
 rayon = "1"
@@ -17,6 +20,7 @@ parking_lot = "0.12"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+serde_json = "1"
 
 [[bench]]
 name = "query_bench"

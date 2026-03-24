@@ -14,7 +14,7 @@ pub type PqCode = [u8; PQ_BYTES];
 pub struct PqCodebook {
     pub full_dim: usize,
     pub sub_dim: usize,
-    /// Shape: [NUM_SUBSPACES][CENTROIDS_PER_SUBSPACE][sub_dim]
+    /// Shape: \[NUM_SUBSPACES\]\[CENTROIDS_PER_SUBSPACE\]\[sub_dim\]
     pub centroids: Vec<Vec<Vec<f32>>>,
 }
 
@@ -57,7 +57,7 @@ impl PqCodebook {
     }
 
     /// Build an asymmetric distance table (ADT) for a query vector.
-    /// Returns [NUM_SUBSPACES][256] table where entry [m][c] is the
+    /// Returns \[NUM_SUBSPACES\]\[256\] table where entry \[m\]\[c\] is the
     /// dot-product between the query's m-th subvector and centroid c of subspace m.
     pub fn build_distance_table(&self, query: &[f32]) -> DistanceTable {
         debug_assert_eq!(query.len(), self.full_dim);
