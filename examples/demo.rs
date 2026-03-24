@@ -1,5 +1,5 @@
 use rand::Rng;
-use vtpl::{l2_normalize, PqCodebook, VtplIndex};
+use vtpl::{l2_normalize, CachedIndex, ParallelBuilder, PqCodebook, VtplIndex};
 
 fn fake_embedding(dim: usize, seed_text: &str) -> Vec<f32> {
     let mut rng = rand::thread_rng();
@@ -32,26 +32,50 @@ fn main() {
         (9, "the rust borrow checker ensures memory safety without garbage collection"),
     ];
 
-    let mut index = VtplIndex::new(codebook);
+    // --- Sequential build ---
+    println!("--- Sequential build ---");
+    let mut index = VtplIndex::new(codebook.clone());
     for &(id, text) in &documents {
         index.insert(id, text, &fake_embedding(dim, text));
     }
     index.finalize();
-
-    println!("{} documents, {} posting lists, {} total entries\n",
+    println!("{} docs, {} posting lists, {} entries\n",
              index.num_chunks(), index.num_postings(), index.total_entries());
+
+    // --- Parallel build ---
+    println!("--- Parallel build (rayon + AtomicU32) ---");
+    let builder = ParallelBuilder::new(codebook);
+    let embeddings: Vec<Vec<f32>> = documents.iter().map(|&(_, t)| fake_embedding(dim, t)).collect();
+    let batch: Vec<(u32, &str, &[f32])> = documents.iter()
+        .zip(embeddings.iter())
+        .map(|(&(id, text), emb)| (id, text, emb.as_slice()))
+        .collect();
+    builder.insert_batch(&batch);
+    let par_index = builder.build();
+    println!("{} docs, {} posting lists, {} entries\n",
+             par_index.num_chunks(), par_index.num_postings(), par_index.total_entries());
+
+    // --- Cached queries ---
+    println!("--- Cached index ---");
+    let cached = CachedIndex::new(par_index, 1000);
 
     let query = "concurrent hash";
     let q_emb = fake_embedding(dim, query);
 
     println!("Query: \"{query}\" (lambda=0.6, top 5)\n");
-    let results = index.query(query, &q_emb, 0.6, 5);
+    let results = cached.query(query, &q_emb, 0.6, 5);
     for r in &results {
         println!("  id={:>2}  score={:.4}  sem={:.4}  pat={:.4}  {}",
                  r.chunk_id, r.score, r.semantic_score, r.pattern_score,
                  documents[r.chunk_id as usize].1);
     }
 
-    println!("\nSerialize: {} bytes", index.serialize().len());
+    // Second identical query — cache hit
+    let _r2 = cached.query(query, &q_emb, 0.6, 5);
+    println!("\nCache stats: {} hits, {} misses, {:.0}% hit rate",
+             cached.cache_hits(), cached.cache_misses(),
+             cached.cache_hit_rate() * 100.0);
+
+    println!("\nSerialize: {} bytes", cached.inner().serialize().len());
     println!("=== Done ===");
 }

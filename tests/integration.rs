@@ -19,7 +19,7 @@ fn build_test_index(dim: usize) -> (VtplIndex, Vec<Vec<f32>>) {
     let train_vecs: Vec<Vec<f32>> = (0..300).map(|_| random_vec(dim)).collect();
     let codebook = PqCodebook::train(&train_vecs, dim, 15);
 
-    let texts = vec![
+    let texts = [
         "concurrent hash map implementation in rust",
         "vector search using product quantization",
         "posting list intersection algorithm",

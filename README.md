@@ -78,25 +78,37 @@ VTPL is useful when queries have **both a text pattern and a semantic component*
 ## Usage
 
 ```rust
-use vtpl::{PqCodebook, VtplIndex, l2_normalize};
+use vtpl::{PqCodebook, VtplIndex, ParallelBuilder, CachedIndex, l2_normalize};
 
 let codebook = PqCodebook::train(&training_vectors, dim, 25);
 
-let mut index = VtplIndex::new(codebook);
-for (id, text, embedding) in chunks {
-    index.insert(id, &text, &embedding);
+// --- Sequential build ---
+let mut index = VtplIndex::new(codebook.clone());
+for (id, text, embedding) in &chunks {
+    index.insert(*id, text, embedding);
 }
 index.finalize();
 
-// Fused query: text + vector in one pass
-let results = index.query("concurrent hash map", &query_embedding, 0.6, 10);
+// --- Parallel build (rayon + AtomicU32) ---
+let builder = ParallelBuilder::new(codebook);
+let batch: Vec<(u32, &str, &[f32])> = /* your docs */;
+builder.insert_batch(&batch);
+let index = builder.build();
+
+// --- Cached queries (for repeated / high-throughput workloads) ---
+let cached = CachedIndex::new(index, 10_000); // LRU capacity
+
+let results = cached.query("concurrent hash map", &query_embedding, 0.6, 10);
+// Second identical query returns from cache
+let results2 = cached.query("concurrent hash map", &query_embedding, 0.6, 10);
+println!("hit rate: {:.0}%", cached.cache_hit_rate() * 100.0);
 
 // Text-only / vector-only also available
-let text_results = index.text_query("posting list", 10);
-let vec_results  = index.vector_query(&query_embedding, 10);
+let text_results = cached.inner().text_query("posting list", 10);
+let vec_results  = cached.inner().vector_query(&query_embedding, 10);
 
 // Persist to disk
-index.save_to_file("index.vtpl")?;
+cached.inner().save_to_file("index.vtpl")?;
 let loaded = VtplIndex::load_from_file("index.vtpl")?;
 ```
 
@@ -104,17 +116,21 @@ let loaded = VtplIndex::load_from_file("index.vtpl")?;
 
 ```
 src/
-├── lib.rs      — public API
-├── pq.rs       — product quantization: codebook training, encode, asymmetric distance tables
-├── ngram.rs    — character trigram extraction
-├── posting.rs  — VtplEntry (chunk_id + 32-byte PQ code), PostingList
-└── index.rs    — VtplIndex: insert, finalize, query, serialization
+├── lib.rs        — public API
+├── pq.rs         — product quantization: codebook training, encode, asymmetric distance tables
+├── ngram.rs      — character trigram extraction
+├── posting.rs    — VtplEntry (chunk_id + 32-byte PQ code), PostingList
+├── index.rs      — VtplIndex: insert, finalize, query, serialization
+├── parallel.rs   — ParallelBuilder: rayon + DashMap + AtomicU32 for multi-core indexing
+└── cache.rs      — CachedIndex: LRU query cache + trigram warm-up, RwLock-based thread safety
 ```
 
 - `VtplEntry` is `#[repr(C)]` / 36 bytes — cache-friendly sequential scans
 - Asymmetric distance tables: 32 table lookups per candidate, zero float multiplies at query time
 - Cosine computed once per chunk on first posting-list encounter
 - IDF weighting: `log((N - df + 0.5) / (df + 0.5) + 1)`
+- **Parallel indexing:** PQ encode + trigram extract in parallel via `rayon`, merge into `DashMap` with `AtomicU32` counters
+- **Query cache:** FNV-hashed (text + embedding + lambda + top_k) → LRU eviction with `parking_lot::RwLock` for concurrent reads
 
 ## Running
 

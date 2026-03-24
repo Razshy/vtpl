@@ -33,6 +33,16 @@ impl VtplIndex {
         }
     }
 
+    /// Construct from pre-built parts (used by ParallelBuilder).
+    pub fn from_parts(
+        codebook: PqCodebook,
+        postings: BTreeMap<String, PostingList>,
+        num_chunks: u32,
+        df: HashMap<String, u32>,
+    ) -> Self {
+        Self { codebook, postings, num_chunks, df }
+    }
+
     /// Insert a chunk. Embedding should be L2-normalized.
     pub fn insert(&mut self, chunk_id: ChunkId, text: &str, embedding: &[f32]) {
         let pq_code = self.codebook.encode(embedding);
